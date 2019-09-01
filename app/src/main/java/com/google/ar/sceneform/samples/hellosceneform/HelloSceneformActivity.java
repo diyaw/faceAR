@@ -30,16 +30,37 @@ import com.google.ar.core.Anchor;
 import com.google.ar.core.HitResult;
 import com.google.ar.core.Plane;
 import com.google.ar.sceneform.AnchorNode;
+import com.google.ar.sceneform.ArSceneView;
 import com.google.ar.sceneform.rendering.ModelRenderable;
+import com.google.ar.sceneform.rendering.Renderable;
 import com.google.ar.sceneform.ux.ArFragment;
 import com.google.ar.sceneform.ux.TransformableNode;
+
+import com.google.ar.core.ArCoreApk;
+import com.google.ar.core.AugmentedFace;
+import com.google.ar.core.TrackingState;
+import com.google.ar.sceneform.ArSceneView;
+import com.google.ar.sceneform.FrameTime;
+import com.google.ar.sceneform.Scene;
+import com.google.ar.sceneform.rendering.Renderable;
+import com.google.ar.sceneform.rendering.Texture;
+import com.google.ar.sceneform.ux.AugmentedFaceNode;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 /**
  * This is an example activity that uses the Sceneform UX package to make common AR tasks easier.
  */
 public class HelloSceneformActivity extends AppCompatActivity {
+
+
+  private final HashMap<AugmentedFace, AugmentedFaceNode> faceNodeMap = new HashMap<>();
   private static final String TAG = HelloSceneformActivity.class.getSimpleName();
   private static final double MIN_OPENGL_VERSION = 3.0;
+
+  private ModelRenderable faceRegionsRenderable;
 
   private FaceArFragment arFragment;
   private ModelRenderable andyRenderable;
@@ -60,36 +81,59 @@ public class HelloSceneformActivity extends AppCompatActivity {
 
     // When you build a Renderable, Sceneform loads its resources in the background while returning
     // a CompletableFuture. Call thenAccept(), handle(), or check isDone() before calling get().
-    ModelRenderable.builder()
-        .setSource(this, R.raw.andy)
-        .build()
-        .thenAccept(renderable -> andyRenderable = renderable)
-        .exceptionally(
-            throwable -> {
-              Toast toast =
-                  Toast.makeText(this, "Unable to load andy renderable", Toast.LENGTH_LONG);
-              toast.setGravity(Gravity.CENTER, 0, 0);
-              toast.show();
-              return null;
-            });
+      // Load the face regions renderable.
+// To ensure that the asset doesn't cast or receive shadows in the scene,
+// ensure that setShadowCaster and setShadowReceiver are both set to false.
+      ModelRenderable.builder()
+              .setSource(this, R.raw.fox_face)
+              .build()
+              .thenAccept(
+                      modelRenderable -> {
+                          faceRegionsRenderable = modelRenderable;
+                          modelRenderable.setShadowCaster(false);
+                          modelRenderable.setShadowReceiver(false);
+                      });
 
-    arFragment.setOnTapArPlaneListener(
-        (HitResult hitResult, Plane plane, MotionEvent motionEvent) -> {
-          if (andyRenderable == null) {
-            return;
-          }
+      ArSceneView sceneView = arFragment.getArSceneView();
 
-          // Create the Anchor.
-          Anchor anchor = hitResult.createAnchor();
-          AnchorNode anchorNode = new AnchorNode(anchor);
-          anchorNode.setParent(arFragment.getArSceneView().getScene());
+// This is important to make sure that the camera stream renders first so that
+// the face mesh occlusion works correctly.
+      sceneView.setCameraStreamRenderPriority(Renderable.RENDER_PRIORITY_FIRST);
 
-          // Create the transformable andy and add it to the anchor.
-          TransformableNode andy = new TransformableNode(arFragment.getTransformationSystem());
-          andy.setParent(anchorNode);
-          andy.setRenderable(andyRenderable);
-          andy.select();
-        });
+      Scene scene = sceneView.getScene();
+
+      scene.addOnUpdateListener(
+              (FrameTime frameTime) -> {
+                  if (faceRegionsRenderable == null) {
+                      return;
+                  }
+
+                  Collection<AugmentedFace> faceList =
+                          sceneView.getSession().getAllTrackables(AugmentedFace.class);
+
+                  // Make new AugmentedFaceNodes for any new faces.
+                  for (AugmentedFace face : faceList) {
+                      if (!faceNodeMap.containsKey(face)) {
+                          AugmentedFaceNode faceNode = new AugmentedFaceNode(face);
+                          faceNode.setParent(scene);
+                          faceNode.setFaceRegionsRenderable(faceRegionsRenderable);
+                          faceNodeMap.put(face, faceNode);
+                      }
+                  }
+
+                  // Remove any AugmentedFaceNodes associated with an AugmentedFace that stopped tracking.
+                  Iterator<Map.Entry<AugmentedFace, AugmentedFaceNode>> iter =
+                          faceNodeMap.entrySet().iterator();
+                  while (iter.hasNext()) {
+                      Map.Entry<AugmentedFace, AugmentedFaceNode> entry = iter.next();
+                      AugmentedFace face = entry.getKey();
+                      if (face.getTrackingState() == TrackingState.STOPPED) {
+                          AugmentedFaceNode faceNode = entry.getValue();
+                          faceNode.setParent(null);
+                          iter.remove();
+                      }
+                  }
+              });
   }
 
   /**
