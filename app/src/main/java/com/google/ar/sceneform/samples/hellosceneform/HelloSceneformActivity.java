@@ -56,6 +56,7 @@ import java.util.Map;
 public class HelloSceneformActivity extends AppCompatActivity {
 
 
+    private Texture faceMeshTexture;
   private final HashMap<AugmentedFace, AugmentedFaceNode> faceNodeMap = new HashMap<>();
   private static final String TAG = HelloSceneformActivity.class.getSimpleName();
   private static final double MIN_OPENGL_VERSION = 3.0;
@@ -93,18 +94,26 @@ public class HelloSceneformActivity extends AppCompatActivity {
                           modelRenderable.setShadowCaster(false);
                           modelRenderable.setShadowReceiver(false);
                       });
+      Texture.builder()
+              .setSource(this, R.drawable.fox_face_mesh_texture)
+              .build()
+              .thenAccept(texture -> faceMeshTexture = texture);
+
 
       ArSceneView sceneView = arFragment.getArSceneView();
 
 // This is important to make sure that the camera stream renders first so that
 // the face mesh occlusion works correctly.
+
+
       sceneView.setCameraStreamRenderPriority(Renderable.RENDER_PRIORITY_FIRST);
 
       Scene scene = sceneView.getScene();
 
       scene.addOnUpdateListener(
+
               (FrameTime frameTime) -> {
-                  if (faceRegionsRenderable == null) {
+                  if (faceRegionsRenderable == null || faceMeshTexture == null) {
                       return;
                   }
 
@@ -116,6 +125,7 @@ public class HelloSceneformActivity extends AppCompatActivity {
                       if (!faceNodeMap.containsKey(face)) {
                           AugmentedFaceNode faceNode = new AugmentedFaceNode(face);
                           faceNode.setParent(scene);
+                          faceNode.setFaceMeshTexture(faceMeshTexture);
                           faceNode.setFaceRegionsRenderable(faceRegionsRenderable);
                           faceNodeMap.put(face, faceNode);
                       }
